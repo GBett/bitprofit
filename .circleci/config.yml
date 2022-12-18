@@ -1,0 +1,124 @@
+defaults: &defaults
+  working_directory: ~/bitprofit
+  docker:
+    - image: circleci/clojure:boot-2.7.2
+    # image is broken
+    # https://github.com/wernight/docker-phantomjs/pull/3
+    # - image: wernight/phantomjs:2.1.1
+
+version: 2
+
+jobs:
+  build:
+    <<: *defaults
+    steps:
+      - restore_cache:
+          keys:
+            - v1-source-{{ .Branch }}-{{ .Revision }}
+
+      - checkout
+
+      - save_cache:
+          key: v1-source-{{ .Branch }}-{{ .Revision }}
+          paths:
+            - ".git"
+            - "build.boot"
+
+      - restore_cache:
+          keys:
+            - v1-m2-{{ .Branch }}-{{ checksum "build.boot" }}
+
+      - run: boot noop
+
+      - save_cache:
+          key: v1-m2-{{ .Branch }}-{{ checksum "build.boot" }}
+          paths:
+            - "~/.m2"
+
+      - restore_cache:
+          keys:
+            - v1-target-{{ .Branch }}-{{ .Revision }}
+
+      - run: boot build
+
+      - save_cache:
+          key: v1-target-{{ .Branch }}-{{ .Revision }}
+          paths:
+            - "target"
+
+  test:
+    <<: *defaults
+    steps:
+      - restore_cache:
+          keys:
+            - v1-source-{{ .Branch }}-{{ .Revision }}
+
+      - checkout
+
+      - restore_cache:
+          keys:
+            - v1-m2-{{ .Branch }}-{{ checksum "build.boot" }}
+
+      - run: boot test-once
+
+      - save_cache:
+          key: v1-m2-{{ .Branch }}-{{ checksum "build.boot" }}
+          paths:
+            - "~/.m2"
+
+  deploy:
+    <<: *defaults
+    steps:
+      - restore_cache:
+          keys:
+            - v1-source-{{ .Branch }}-{{ .Revision }}
+
+      - checkout
+
+      - restore_cache:
+          keys:
+            - v1-m2-{{ .Branch }}-{{ checksum "build.boot" }}
+
+      - restore_cache:
+          keys:
+            - v1-target-{{ .Branch }}-{{ .Revision }}
+
+      - run: boot deploy
+
+  ancient:
+    <<: *defaults
+    steps:
+      - restore_cache:
+          keys:
+            - v1-source-{{ .Branch }}-{{ .Revision }}
+
+      - checkout
+
+      - restore_cache:
+          keys:
+            - v1-m2-{{ .Branch }}-{{ checksum "build.boot" }}
+
+      - run: boot ancient
+
+workflows:
+  version: 2
+  build_test_deploy:
+    jobs:
+      - build
+
+      - test:
+          requires:
+            - build
+
+      - ancient:
+          requires:
+            - build
+
+      - deploy:
+          context: org-global
+          requires:
+            - build
+            - test
+          filters:
+            branches:
+              only: master
